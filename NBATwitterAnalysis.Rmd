@@ -1,0 +1,375 @@
+---
+title: "Assessing NBA Players' Political Impact through Twitter"
+author: "Ben Thorpe"
+date: "November 21, 2020"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r setup, include = FALSE}
+knitr::opts_chunk$set(echo = FALSE, 
+                      warning = FALSE, 
+                      message = FALSE)
+```
+
+```{r loadPackages, message=FALSE}
+library(tidyverse)
+library(dplyr)
+library(ggplot2)
+library(rtweet)
+library(infer)
+library(tidytext)
+library(wordcloud)
+library(Metrics)
+library(coefplot)
+library(patchwork)
+library(kableExtra)
+```
+
+# Introduction
+
+The social activism of professional athletes in the United States has grown substantially over the past 10 years, and much of this increase in spreading awareness has been possible due to the rise of social media. Players are able to post about issues that are important to them whenever they desire, and with the fight against systemic racism and the polarizing presidential election coming to a head over the past few months, they have done just that. Whether it has been through calling for government action after the unjust killings of George Floyd and Breonna Taylor at the hands of police officers or purposefully reminding their followers to get registered to vote, athletes have been using their platform to promote social justice initiatives extensively over the past few months in particular. However, there are plenty of Americans who disagree with this progression and would like them to just “stick to sports.” For example, Fox News anchor Laura Ingraham notably told LeBron James to “shut up and dribble” after he publicly expressed his disdain for President Trump in 2018. Ingraham and other detractors of these acts of player empowerment have called for Americans to boycott the league this past season as they felt sports should be devoid of any outside messages, especially topics deemed to be political. They also commonly claimed that these messages were going unheard and would not affect the mindsets or actions of Americans. With this in mind, I set out to measure the impact athletes have through social justice posts on social media and to analyze how the public interacts with their political tweets. I am focusing on players in the National Basketball Association (NBA), since they have been the most outspoken on social justice issues. 
+
+
+# Hypotheses
+
+In order to measure the social justice and political impact of NBA players, I am analyzing their recent Twitter data. Since the focus of this study is on their social activism, I am identifying which tweets are related to this topic for analysis. Since I am analyzing the data in a variety of ways, I have come up with multiple hypotheses relating to my main research topic. 
+
+
+1.	If a tweet is political, it will have more retweets than non-political tweets, on average (Molyneux, 2017).
+
+2.	Important NBA player statistics (points, assists, rebounds, and minutes played) (Li, 2014) and social media metrics (number of retweets and favorites) (Molyneux, 2017) of a tweet will both have an effect in predicting if a tweet is political.
+
+3.	On average, political tweets will be more negative than non-political tweets (Bakliwal, 2013).
+
+4.	The linear statistical model will be able to predict how many retweets a tweet receives accurately, and the logistic statistical model will be able to determine whether a tweet is political accurately.
+
+
+```{r loadData, eval=FALSE}
+twitter_handles <- read_csv("data/NBATwitter.csv")
+
+player_stats <- read_csv("data/PlayerStats.csv")
+```
+
+
+```{r wrangleData, eval=FALSE}
+twitter_handles <- twitter_handles %>%
+        filter(Rk != "Rk")
+
+player_stats <- player_stats %>%
+        filter(Rk != "Rk")
+
+player_stats <- left_join(player_stats, twitter_handles, by="Player")
+
+player_stats <- player_stats[!duplicated(player_stats$Player),]
+
+player_stats <- player_stats %>% filter(!is.na(Twitter)) %>%
+        mutate(G = as.numeric(G)) %>%
+        filter(G>5) %>%
+        mutate(MP = as.numeric(MP)) %>%
+        rename(screen_name=Twitter) %>%
+        mutate(screen_name = if_else(screen_name == "HBarnes", "hbarnes", screen_name)) %>%
+        mutate(screen_name = if_else(screen_name == "MarioHezonja", "mariohezonja", screen_name)) %>%
+        mutate(screen_name = if_else(screen_name == "Semi", "semi", screen_name)) %>%
+        mutate(screen_name = if_else(screen_name == "@Iam_J3", "Iam_J3", screen_name)) %>%
+        mutate(screen_name = if_else(screen_name == "ishsmith", "IshSmith", screen_name)) %>%
+        mutate(screen_name = if_else(screen_name == "tonywarrenjr", "TonyWarrenJr", screen_name))
+```
+
+
+```{r getTweets, eval=FALSE}
+get_tweets <- function(x, number){
+        all_tweets <- data.frame()
+        for(user in x){
+                df <- get_timelines(user, n = number)
+                all_tweets <- rbind(all_tweets, df)
+                #Sys.sleep(0.5) 
+        }
+        return(all_tweets)
+}
+```
+
+
+
+```{r runGetTweets, eval=FALSE}
+player_tweets <- get_tweets(player_stats$screen_name, 30)
+```
+
+```{r runGetTweets2, eval=FALSE}
+player_tweets2 <- get_tweets(player_stats$screen_name, 30)
+```
+
+```{r runGetTweets3, eval=FALSE}
+player_tweets3 <- get_tweets(player_stats$screen_name, 30)
+```
+
+```{r joinTweets, eval=FALSE}
+tweets_with_stats1 <- merge(player_stats, player_tweets, by="screen_name", all.y=TRUE) %>%
+        mutate(MP = as.numeric(MP))
+
+tweets_with_stats2 <- merge(player_stats, player_tweets2, by="screen_name", all.y=TRUE) %>%
+        mutate(MP = as.numeric(MP))
+
+tweets_with_stats3 <- merge(player_stats, player_tweets3, by="screen_name", all.y=TRUE) %>%
+        mutate(MP = as.numeric(MP)) 
+
+all_data <- read_csv("data/all_data.csv")
+
+all_data <- all_data %>%
+        mutate(MP = as.numeric(MP)) %>%
+        mutate(Age = as.numeric(Age)) %>%
+        mutate(G = as.numeric(G)) %>%
+        mutate(GS = as.numeric(GS)) %>%
+        mutate(MP = as.numeric(MP)) %>%
+        mutate(FG = as.numeric(FG)) %>%
+        mutate(FGA = as.numeric(FGA)) %>%
+        mutate("FG%" = as.numeric("FG%")) %>%
+        mutate("3P" = as.numeric("3P")) %>%
+        mutate("3PA" = as.numeric("3PA")) %>%
+        mutate("3P%" = as.numeric("3P%")) %>%
+        mutate("2P" = as.numeric("2P")) %>%
+        mutate("2PA" = as.numeric("2PA")) %>%
+        mutate("2P%" = as.numeric("2P%")) %>%
+        mutate("eFG%" = as.numeric("eFG%")) %>%
+        mutate(FT = as.numeric(FT)) %>%
+        mutate(FTA = as.numeric(FTA)) %>%
+        mutate("FT%" = as.numeric("FT%")) %>%
+        mutate(ORB = as.numeric(ORB)) %>%
+        mutate(DRB = as.numeric(DRB)) %>%
+        mutate(TRB = as.numeric(TRB)) %>%
+        mutate(AST = as.numeric(AST)) %>%
+        mutate(STL = as.numeric(STL)) %>%
+        mutate(BLK = as.numeric(BLK)) %>%
+        mutate(PF = as.numeric(PF)) %>%
+        mutate(PTS = as.numeric(PTS)) %>%
+        mutate(TOV = as.numeric(TOV))
+```
+
+```{r getPolitical}
+select_data <- read_csv("data/select_data.csv")
+
+select_data <- select_data %>%
+        mutate(text = tolower(text)) %>%
+        mutate(retweet_text = tolower(retweet_text)) %>%
+        mutate(quoted_text = tolower(quoted_text))
+
+words <- 'black|democracy|justice|breonna|taylor|trump|Biden|blm|corona|equality|racism|floyd|president|blacklivesmatter|peace|ahmaud|arbery|salute|stacey|abrams|kamala|harris|pence|vote|country|election|poll|blake|change|equality|barack|obama|voting|disenfranchise|incarcerate|race|racial|education|reform|national|immunity|cops|police|defund|kenosha|equalities|arrest|law|brutality|social|lives|inclusion|ballot|45'
+
+
+select_data[grep(words, select_data$text, value = F), "political"] <- 1
+select_data[grep(words, select_data$retweet_text, value = F), "political"] <- 1
+select_data[grep(words, select_data$quoted_text, value = F), "political"] <- 1
+
+select_data$political[is.na(select_data$political)] <- 0
+
+political_tweets <- select_data %>% filter(political==1)
+```
+
+
+# Data Wrangling
+
+I first gathered the player statistics and Twitter handles of all NBA players through datasets on the website Basketball Reference and joined them together so each row of data consisted of a player’s season stats along with their twitter handle. I then wrangled the last 30 tweets of all NBA players who played in more than five games in the 2019-2020 season using the Twitter screen names from the first dataset. Players who played fewer than six games were removed in order to filter out players who were not on an NBA roster throughout most of the season. However, I did not set a minimum number of minutes played since I wanted to analyze how NBA players tweeted as a whole, which includes the athletes who rarely play but remain rostered. In total, 12,740 tweets were gathered from 449 NBA player (this is less than 30 per player since some athletes have tweeted less than 30 times since their account was started). The player stats and tweets datasets were then merged together by each athlete’s respective Twitter handle so that each row in the new dataset included a player’s full season-long basketball stats as well as one of their tweets and the accompanying metadata. The full list of variables analyzed is shown below. 
+
+```{r variables}
+colnames(select_data)
+```
+<br />
+Where `G` is games played, `MP` is total minutes played, `TRB` is total rebounds, `AST` is total assists, and `PTS` is total points.
+<br />
+
+I then created a subset of this dataset which only included tweets which were deemed to be political or social justice related. I classified the tweets using a dictionary based approach, where if any tweet, retweet, or quote tweet an athlete posted contained a word from the dictionary its `political` value would be equal to one, and if it did not `political` would be equal to zero. I then filtered for rows where `political` was one to make the `political_tweets` dataset. I manually created the dictionary by including political words that I thought of on my own as well as inspecting the Twitter timelines of NBA players known for being outspoken on social issues and finding language they used often which related to this topic. The dictionary contained a total of 43 words, which are listed below. 
+
+```{r words}
+'black, democracy, justice, breonna, taylor, trump, Biden, blm, corona, equality, racism, floyd, president, blacklivesmatter, peace, ahmaud, arbery, salute, stacey, abrams, kamala, harris, pence, vote, country, election, poll, blake, change, equality, barack, obama, voting, disenfranchise, incarcerate, race, racial, education, reform, national, immunity, cops, police, defund, kenosha, equalities, arrest, law, brutality, social, lives, inclusion, ballot, 45'
+```
+
+Here are the top 10 athletes regarding how many “political” tweets they have made out of their last 30 tweets posted. 
+
+```{r mostPolitical}
+political_tweets %>% group_by(Player) %>%
+        count() %>%
+        arrange(desc(n)) %>%
+        head(10) %>%
+        rename(Tweets = n) %>%
+        kable()
+```
+<br />
+The list demonstrates that the dictionary approach works at least moderately well since multiple high-profile players who have been the most outspoken on social justice issues, such as LeBron James, Jaylen Brown, and Chris Paul, are on it.
+
+To additionally test whether my dictionary-based approach worked, I wanted to find the most popular words found in the tweet text of tweets classified as “political.” I used the `stringr` package to gather all of the individual words from the tweets and remove “stop words” (words that will always show up often such as “and” and “the”). Below is a word cloud showing the most popular words and a bar graph of the 20 most common words seen in the political tweets dataset.
+<br />
+```{r mostCommonWords}
+political_tweets %>%
+  unnest_tokens(word, text, token="tweets") %>%
+  anti_join(stop_words) %>%
+  count(word) %>%
+  with(wordcloud(word, n, max.words = 50, random.order=FALSE))
+
+political_tweets %>%
+        unnest_tokens(word, text, token="tweets") %>%
+        anti_join(stop_words) %>%
+        count(word) %>%
+        arrange(desc(n)) %>%
+        head(20) %>%
+        ggplot(aes(x=word, y=n, fill=factor(ifelse(word=="vote" | word=="#vote" 
+                                | word=="voting" | word=="president" | word=="black" | word=="change" 
+                                | word=="country" | word=="election" | word=="justice" | word=="police" 
+                                | word=="lives" | word=="trump","Yes","No")))) +
+        geom_col() +
+        coord_flip() +
+        scale_fill_manual(name = "Social Justice / Political?", values=c("grey","blue")) +
+        labs(x="Word", y="Count", title="Count of 20 most-used words from Political Tweets")
+#select_data %>%
+#        unnest_tokens(word, text, token="tweets") %>%
+#        anti_join(stop_words) %>%
+#        count(word) %>%
+#        arrange(desc(n)) %>%
+#        head(20) %>%
+#        ggplot(aes(x=word, y=n, fill=factor(ifelse(word=="vote","Yes","No")))) +
+#        geom_col(show.legend = FALSE) +
+#        coord_flip() +
+#        scale_fill_manual(name = "", values=c("grey","blue")) +
+#        labs(x="Word", y="Count", title="Count of 20 most-used words from All #Tweets")
+
+#select_data %>%
+ #       ggplot(aes(x=retweet_count)) +
+  #      geom_histogram()
+```
+
+
+# Methodology
+
+To find which variables were most predictive of retweets, I created a linear model with points, assists, rebounds, minutes played, whether a tweet was political, the number of followers the “tweeter” has, the number of favorites the tweet has, and the interaction between the follower count and favorite count as the independent variables. I chose the retweet count to be the response variable because it is the metric that is most indicative of how many people read the content of a tweet. The more often a tweet is retweeted, the more people the message it contains will reach. Thus, I felt this was the best way to measure the impact of a political tweet. The first four variables are all season totals from the 2019-2020 NBA season, and I included them because these are the first statistics people think of in determining how good a basketball player is. Higher values should lead to more national exposure and thus more interaction with tweets by those athletes. I also wanted to account for the number of followers the user had and the number of favorites a tweet received since I expected these to have a very strong effect on the number of retweets. The interaction variable between these two metrics was included because they should be heavily related, and I wanted to account for this in the model.
+
+In determining which factors were most important in the classification of a tweet as political, I decided to test a logistic model. It had a very similar structure to the linear model described above, except now the `political` variable is the response variable and the favorite count is a factor. The rest of the independent variables are the same as in the linear model. I decided to use a logistic regression in this case since the response variable is a binary categorical variable with the categories being political and not political. Furthermore, by running a logistic model I was able to control for variables that I believed would affect the political nature of a post: a user’s important basketball season totals and their social media metrics.
+
+My next test was to figure out whether the political tweets were more negative than non-political tweets made by the athletes. I used the “bing” sentiment dictionary to do this. The “bing” dictionary contains a list of 6,786 words that are either listed as negative or positive. From this, I found the number of positive and negative words and calculated the number of positive words divided by the total number of words found to be either positive or negative for each subset of data (political and non-political tweets). These two values were compared to analyze the overall sentiment of each respective dataset.
+
+Lastly, I wanted to see if the models described above (the linear model and the regression model) would have significant predictive power. To test the effectiveness of the linear model, I looked at its R-squared value. For the logistic model, I first split up the dataset of all tweets into a train and test set, using 70% of the political tweets and the same number of non-political tweets to train it. I split the data in this manner so that the model would be able to better differentiate between political and non-political tweets, since approximately only one tenth of the dataset was deemed to be political and a normal random sample may not include enough political tweets to train the models well. To evaluate the logistic model, I produced a confusion matrix of its predictions.
+
+
+# Analysis
+
+Shown below is the output of the linear model. 
+
+```{r linReg}
+lm1 <- lm(data=select_data, retweet_count ~ PTS + AST + TRB + MP + political + followers_count + favorite_count + followers_count*favorite_count)
+tidy(lm1) %>% select(term, estimate, p.value) %>% mutate(estimate = formatC(estimate, format = "e", digits = 2), p.value = round(p.value, 3)) %>% kable() %>% kable_styling()
+
+#select_data %>% filter(!is.na(retweet_text)) %>% summarise(hi = mean(retweet_count), me = mean(MP))
+#select_data %>% filter(is.na(retweet_text)) %>% summarise(hi = mean(retweet_count), me = mean(MP))
+
+#glance(lm1) %>% select(r.squared)
+```
+<br />
+Factors which are statistically significant have a p-value less than 0.05, and these variables are minutes played, whether a tweet was political, the number of followers an account has, the number of favorites a tweet receives, and the interaction variable between followers and favorites. Most importantly for this study, the results demonstrate that whether a tweet is political is the most statistically significant variable in predicting retweets. This variable has by far the lowest p-value, and thus is most likely to have an impact on the retweet number. Thus, the linear model provides evidence that agrees with my first hypothesis since the model estimates that if a tweet is political it will have around 7,206 more retweets, on average. The output of the model exhibits that minutes played is the most important basketball statistic in determining the number of retweets a tweet receives. Surprisingly, however, it has a negative coefficient which leads to the conclusion that the more minutes an athlete plays the less retweets they will receive. I expected that players who receive more playing time would be more likely to gain more national exposure and thus twitter followers, which leads to more interaction with their tweets, but the model rejects this notion. After inspecting the dataset further, the reason for this unanticipated relationship is evident. If a player retweets another tweet, all retweets the original tweet receives will show up as retweets that the player's post receives. For example, if LeBron James retweets another user's post which has 500,000 retweets, the dataset marks this as James's tweet receiving those 500,00 retweets. Retweets generate a much greater number of further retweets compared to regular tweets or quote tweets, on average (7,717 to 341), and the average number of minutes played by users of retweets is significantly lower than that of normal tweets and quote tweets (974 to 1,129). These discoveries demonstrate why the basketball statistics part of the model are misleading due to how Twitter organizes the metadata of a retweet. 
+
+Shown below is the output of the logistic model.
+
+```{r logReg}
+glm1 <- glm(data=select_data, political ~ PTS + AST + TRB + MP + retweet_count + favorite_count + favorite_count*retweet_count)
+tidy(glm1) %>% select(term, estimate, p.value) %>% mutate(estimate = formatC(estimate, format = "e", digits = 2), p.value = round(p.value, 3)) %>% kable() %>% kable_styling()
+```
+<br />
+Just as in the linear model, factors which are statistically significant have a p-value less than 0.05, and these statistics consist of only total rebounds and the number of retweets. The results show that the retweet count p-value was around $1.88 \times 10^{-30}$ which signifies that it is much more likely to have a real effect on the political nature of a tweet. Thus, having a higher number of retweets increases the probability that a tweet is political, on average. I want to note that although the p-value associated with the total rebounds variable is below 0.05 (around 0.04), it still is not extremely low. The data suggests that having a higher rebounding total reduces the chance a tweet from that player is political, which indicates that taller players are less likely to speak out about social justice issues. This finding is surprising to me, since big men have been just as publicly outspoken as all other players, and combined with the low but not super low p-value, it leads me to believe that it is more likely due to chance instead of actually being a significant result. These outcomes mostly contradict what I expected to happen. I thought more prominent players, ones who play more minutes and have better stats, would be more outspoken on social issues through twitter but the data suggests this is not the case. Furthermore, I expected the count of both favorites and retweets along with their interaction variable to have a significant impact on whether a tweet is political, however the data suggests that only the number of retweets does.
+
+
+For the sentiment analysis, I found that 75% of the words that were in both the “bing” dictionary and in the text of the non-political tweets were considered positive, and 64% of the words in common between the “bing” dictionary and the content in political tweets was considered positive, as shown below. 
+
+<br />
+Sentiment of Political Tweets
+```{r sentiment1}
+political_tweets %>%
+        unnest_tokens(word, text) %>%
+        inner_join(get_sentiments("bing")) %>%
+        count(sentiment) %>% 
+        spread(sentiment, n, fill = 0) %>%
+        mutate(sentiment = positive - negative) %>%
+        kable() %>%
+        kable_styling()
+```
+
+Sentiment of Non-political Tweets
+```{r sentiment2}
+select_data %>%
+        filter(political==0) %>%
+        unnest_tokens(word, text) %>%
+        inner_join(get_sentiments("bing")) %>%
+        count(sentiment) %>% 
+        spread(sentiment, n, fill = 0) %>%
+        mutate(sentiment = positive - negative) %>% 
+        kable() %>%
+        kable_styling()
+```
+<br />
+These findings suggest my hypothesis was correct, however it is interesting to see how even political tweets are generally positive. A large portion of the criticism against athletes is that their calls for change are always negative complaints against the country, yet the data demonstrated that this is not the case at least in terms of their Twitter activity. One reason for this may be that in the past month almost all of the emphasis in the social justice sphere has been put on encouraging people to vote, and this type of encouragement usually has a positive connotation. It is possible that if I had gathered the twitter data a couple of months ago while the focus was more on the black lives matter movement that the sentiment might be more negative.
+
+To test the predictive power of the linear regression, I examined the R-squared value of the linear model. The value is around 0.025, which means that about only 2.5% of the variability in the number of retweets a tweet receives can be explained by the model. This percentage is extremely low, so the model is not at all able to accurately predict retweets based on the factor variables listed above. This finding provides evidence against my hypothesis since I expected the model to be a good predictor of retweets. The lack of accuracy in the model is most likely due to the high variance in retweet count, as just over 10% of tweets (1,808) had zero retweets while the greatest number of retweets seen was 652,186. So although the model was able to detect which factors have the greatest influence on the number of retweets, this did not lead to it being able to predict well.
+
+Shown below is the confusion matrix consisting of the predictions made by the model on the test set, where "political" is whether a tweet is classified as political and "prediction" is what the model predicted a tweet should be grouped as, with zero being non-political and one being political.
+```{r predictLog}
+input_yes <- select_data[which(select_data$political == 1), ]
+input_no <- select_data[which(select_data$political == 0), ]
+
+set.seed(100)
+
+training_rows_yes <- sample(1:nrow(input_yes), 0.7*nrow(input_yes))  
+training_rows_no <- sample(1:nrow(input_no), 0.7*nrow(input_yes)) 
+training_yes <- input_yes[training_rows_yes, ]  
+training_no <- input_no[training_rows_no, ]
+train_set <- rbind(training_yes, training_no)  
+
+test_yes <- input_yes[-training_rows_yes, ]
+test_no <- input_no[-training_rows_no, ]
+test_set <- rbind(test_yes, test_no)  
+
+glm1 <- glm(data=train_set, political ~ favorite_count + retweet_count + favorite_count + favorite_count*retweet_count, family = "binomial")
+
+test_set$prediction <- predict(glm1, newdata=test_set, type = "response")
+test_set$prediction <- ifelse(test_set$prediction > 0.5, 1, 0)
+
+with(test_set,table(political, prediction))
+```
+<br />
+The output demonstrates that the logistic model did not perform well in predicting whether a tweet was political. The main focus was on how accurate the model would be on identifying political tweets, and it only correctly classified 66 out of 467 tweets from the test set which were social justice related. So very similarly to the linear model, the logistic model could identify the factors that influence the political nature of a tweet the most but was unable to be a strong predictor of political tweets.
+
+```{r compareToIngraham, eval=FALSE}
+#ingraham_tweets <- get_tweets("IngrahamAngle", 50)
+ingraham_tweets %>%
+        summarise(faveMean = mean(favorite_count), retweetMean = mean(retweet_count))
+
+political_tweets %>%
+        summarise(retweetMean = mean(retweet_count))
+
+political_tweets %>%
+        filter(Player == "LeBron James") %>%
+        summarise(faveMean = mean(favorite_count), retweetMean = mean(retweet_count))
+
+```
+
+# Conclusion
+
+The most significant finding from this study exhibits that Twitter users interact more with political tweets compared to non-political tweets from NBA athletes. This is important because it solidifies that athletes do make an impact with the messages they put out through social media and indicates that the public does care about what athletes have to say on social justice and political issues. One of the main criticisms against athlete activism has been that few people are actually interested in their political views; however, this study proves this is clearly not the case. To illustrate this further, I wrangled the last 50 tweets posted by Laura Ingraham. The average number of retweets in this set of data is around 5,710, while the average number of retweets from the players' political tweets is 9,074. This shows that the average NBA athlete receives more retweets when their tweet is political than Ingraham's tweets do, on average, and gives a better idea of how far the activism of athletes through social media can go. The people want to hear what athletes have to say. 
+
+There are limitations to my study that may have affected the results. In the sentiment analysis, the sentiment of each set of tweets (political and non-political) was calculated through the total number of positive words compared to the total, rather than classifying each individual tweet as positive or negative and comparing the number of positive and negative tweets between the subsets of data. If I were to continue my analysis, I would incorporate this approach for a more accurate comparison. If I were to redo my project it would have been interesting to gather my data within the six weeks following the murder of George Floyd to capture more tweets that were about the black lives matter movement (since this was the original inspiration for my project), as by the time I began to wrangle data from Twitter it had already been around a month from when the NBA season ended and the social justice focus was much more firmly on the election.
+
+
+## References
+
+### Sources of Data
+
+NBA 2019-2020 Player Stats: https://www.basketball-reference.com/leagues/NBA_2020_totals.html
+<br />
+NBA Player Twitter Usernames: https://www.basketball-reference.com/friv/twitter.html
+<br />
+
+### Additiontional Resources
+
+Bakliwal, A. 2013. "Sentiment Analysis of Political Tweets: Towards an Accurate Classifier" http://doras.dcu.ie/19962/1/foster2013.pdf
+
+Li, Z. 2014. "The Monetary Value of Twitter Followers: Evidences from NBA Players" https://aisel.aisnet.org/icis2014/proceedings/EconomicsandValue/20/
+
+Molyneux, L. 2017. "Political Journalists’ Normalization of Twitter" https://www.tandfonline.com/doi/full/10.1080/1461670X.2017.1370978
+
+  
